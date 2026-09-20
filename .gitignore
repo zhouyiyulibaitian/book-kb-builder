@@ -1,0 +1,33 @@
+# 自带虚拟环境（体积大、平台相关，任何人用前自己建）
+.venv/
+venv/
+env/
+
+# Python
+# 两种写法都要留：带斜杠的只匹配"当前已存在的目录"，
+# 目录被删掉后就不生效了，加一条不带斜杠的兜底。
+__pycache__/
+__pycache__
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# 工作目录：probe/render/contact 产出的页锚全文、页面图、联系表
+# 这些是逐本书的中间产物，可能几百 MB
+.bookwork/
+*.pages.txt
+
+# 知识库产物（书目原件与总结属于用户内容，不入库）
+知识库/
+knowledge-base/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 本地临时
+*.tmp
+*.log

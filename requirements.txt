@@ -1,0 +1,11 @@
+# book-kb-builder 的依赖
+#
+# 全部是可选的：核心的文本路线只用 Python 标准库 + pdftotext 就能跑。
+# 但**扫描版图书必须装 PyMuPDF**——它是唯一能渲染页面、读 PDF 书签大纲的路径。
+#
+# 安装（推荐装进本 skill 自带的 .venv，不要污染全局环境）：
+#   python -m venv .venv
+#   .venv/Scripts/python.exe -m pip install -r requirements.txt   # Windows
+#   .venv/bin/python -m pip install -r requirements.txt           # macOS / Linux
+
+pymupdf>=1.24
