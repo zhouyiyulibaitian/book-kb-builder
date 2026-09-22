@@ -255,6 +255,25 @@ def check_structure(text: str, rep: Report):
     return secs
 
 
+def _cited_page_in(segment: str) -> int | None:
+    """从一段文字里取它标注的页锚页码（没有则 None）。"""
+    m = ANCHOR_RE.search(segment)
+    return int(m.group(1)) if m else None
+
+
+def _page_in_range(page: int, start: int | None, end: int | None) -> bool:
+    """页锚允许写成区间（(p.7-9)）——比对时按区间命中即可。
+
+    取不到区间时退化成"只认 start"。
+    """
+    if start is None:
+        return page == end
+    if end is None or start == end:
+        return page == start
+    lo, hi = (start, end) if start <= end else (end, start)
+    return lo <= page <= hi
+
+
 def check_anchors(text: str, secs: dict, page_count: int | None, rep: Report):
     anchors = [int(m.group(1)) for m in ANCHOR_RE.finditer(text)]
     visual = [m for m in ANCHOR_RE.finditer(text) if m.group(2)]
@@ -346,23 +365,64 @@ def check_quotes(text: str, secs: dict, source: Source | None, rep: Report):
         return
 
     bad: list[str] = []
+    wrong_page: list[str] = []
+    no_anchor: list[str] = []
     ok_pages: list[int] = []
     for quote, line_no in found:
         frags = [f for f in ELLIPSIS_RE.split(quote) if len(normalize_for_match(f)) >= 3]
         if not frags:
             continue
-        pg = source.locate(frags[0])
-        if pg is None:
-            bad.append(f"第 {line_no} 行：「{quote[:36]}…」在原文中找不到")
-        else:
-            ok_pages.append(pg)
+        # 省略号节选必须**逐段**都核对：只查第一段的话，
+        # 「真实句子……编造的后半句」会整段通过（这是防编造闸门最要命的一个洞）。
+        located: list[int] = []
+        miss: list[str] = []
+        for fi, frag in enumerate(frags, start=1):
+            hit = source.locate(frag)
+            if hit is None:
+                tag = frag if len(frags) == 1 else f"第 {fi}/{len(frags)} 段「{frag[:24]}…」"
+                miss.append(tag)
+            else:
+                located.append(hit)
+        if miss:
+            bad.append(f"第 {line_no} 行：「{quote[:36]}…」在原文中找不到（{('；'.join(miss))[:60]}）")
+            continue
+        ok_pages.extend(located)
+
+        # 引文出现在哪一页，必须与它标注的 (p.N) 对得上。
+        # 只校验"这句话存在"是不够的：真实存在于 p.5 的句子标成 (p.3) 同样是错的。
+        line = lines[line_no - 1] if 0 < line_no <= len(lines) else ""
+        tail = line.split(quote, 1)[-1] if quote in line else line
+        start_pg = _cited_page_in(tail)
+        end_pg = start_pg
+        if start_pg is not None:
+            rng = re.search(
+                rf"p\.\s*{start_pg}\s*[-–~]\s*(\d+)",
+                tail, re.IGNORECASE)
+            if rng:
+                end_pg = int(rng.group(1))
+        if start_pg is None:
+            no_anchor.append(f"第 {line_no} 行：「{quote[:28]}…」")
+        elif not any(_page_in_range(p, start_pg, end_pg) for p in located):
+            want = f"p.{start_pg}" if start_pg == end_pg else f"p.{start_pg}-{end_pg}"
+            got = "、".join(f"p.{p}" for p in sorted(set(located))[:6])
+            wrong_page.append(
+                f"第 {line_no} 行：标注 {want}，但这段引文实际出现在 {got}")
+
+    details = [f"{len(found)} 段引文全部能在原文中定位（涉及 {len(set(ok_pages))} 页）" + note]
     if bad:
         rep.add("quotes", "引文逐字核对", "fail",
                 bad, hint="这些引文在原书里不存在——要么改回原文，要么删掉。"
                           "注意 OCR/提取可能造成个别字差异，请回原文逐字校对")
-    else:
-        rep.add("quotes", "引文逐字核对", "ok",
-                [f"{len(found)} 段引文全部能在原文中定位（涉及 {len(set(ok_pages))} 页）" + note])
+    if wrong_page:
+        rep.add("quotes", "引文页锚", "fail", wrong_page,
+                hint="引文是真的，但标错了页。请按实际出现页改正 (p.N)——"
+                     "页锚错了，抽查的人会翻到那一页却看不到这句话")
+    if no_anchor:
+        rep.add("quotes", "引文页锚", "warn",
+                no_anchor[:20] + ([f"（还有 {len(no_anchor) - 20} 条）"] if len(no_anchor) > 20 else []),
+                hint="引文后面补上 (p.N)，否则无法判断这段话是否真的出自标注位置")
+    if not bad and not wrong_page:
+        rep.add("quotes", "引文逐字核对", "ok", details)
 
 
 def check_web(text: str, secs: dict, rep: Report):
